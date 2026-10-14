@@ -72,7 +72,6 @@ struct MapTab: View {
             }
         }
         .mapStyle(.standard(elevation: .realistic))
-        .annotationTitles(.hidden)
         .mapControls {
             MapCompass()
             MapScaleView()
