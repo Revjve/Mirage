@@ -1,5 +1,5 @@
-// Load a GPX and walk it. Speed is metres-per-tick, so a coarse track and a dense
-// one move at the same pace — see RouteWalker.
+// GPX routes. Speed is distance-based (see RouteWalker), so a 12-point track and a
+// 1200-point one drive at the same pace.
 
 import CoreLocation
 import SwiftUI
@@ -12,15 +12,16 @@ struct RouteTab: View {
     @State private var importing = false
     @State private var importError = ""
 
-    private var distanceKm: Double {
-        zip(points, points.dropFirst()).reduce(0) { $0 + Geo.distance($1.0, $1.1) } / 1000
+    private var metres: Double {
+        zip(points, points.dropFirst()).reduce(0) { $0 + Geo.distance($1.0, $1.1) }
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Track") {
+                Section {
                     Button {
+                        Haptic.tap()
                         importing = true
                     } label: {
                         Label(points.isEmpty ? "Import GPX…" : "Replace GPX…",
@@ -28,52 +29,64 @@ struct RouteTab: View {
                     }
 
                     if !points.isEmpty {
-                        LabeledContent("File", value: fileName)
-                        LabeledContent("Points", value: "\(points.count)")
-                        LabeledContent("Distance", value: String(format: "%.2f km", distanceKm))
-                        LabeledContent("Duration", value: eta)
+                        LabeledContent("File") {
+                            Text(fileName).lineLimit(1).truncationMode(.middle)
+                        }
+                        LabeledContent("Points") { Text("\(points.count)").numeric() }
+                        LabeledContent("Distance") { Text(distanceText).numeric() }
+                        LabeledContent("Duration") { Text(eta).numeric() }
                     }
                     if !importError.isEmpty {
-                        Text(importError).font(.caption).foregroundStyle(.orange)
+                        Label(importError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(.orange)
                     }
+                } header: {
+                    Text("Track")
+                } footer: {
+                    Text("Reads track points, then route points, then waypoints — whichever the file has first.")
                 }
 
-                Section("Pace") {
-                    VStack(alignment: .leading) {
-                        LabeledContent("Speed", value: String(format: "%.0f km/h", controller.speedKmh))
-                        Slider(value: $controller.speedKmh, in: 1...120, step: 1)
-                        Text(paceHint).font(.caption2).foregroundStyle(.secondary)
-                    }
+                Section("Speed") {
+                    SpeedControl()
+                        .padding(.vertical, 4)
                     Toggle("Loop at the end", isOn: $controller.loopRoute)
                 }
 
                 Section {
                     if controller.mode == .moving {
                         VStack(alignment: .leading, spacing: 8) {
-                            ProgressView(value: controller.progress)
+                            ProgressView(value: controller.progress).tint(.green)
                             Text("\(Int(controller.progress * 100))% complete")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).numeric().foregroundStyle(.secondary)
                         }
                         Button(role: .destructive) {
+                            Haptic.tap(.medium)
                             Task { await controller.stop() }
                         } label: {
                             Label("Stop", systemImage: "stop.fill")
                         }
                     } else {
                         Button {
+                            Haptic.tap(.medium)
                             controller.startRoute(points,
                                                   speedKmh: controller.speedKmh,
                                                   loop: controller.loopRoute)
                         } label: {
-                            Label("Start walking", systemImage: "play.fill")
+                            Label("Drive this track", systemImage: "play.fill")
                         }
                         .disabled(points.count < 2 || controller.busy)
                     }
                 } footer: {
-                    Text("The route is re-sent once a second. Leaving Mirage suspended in the background will stall it — iOS drops the simulated fix when the channel goes quiet.")
+                    Text("Keep Mirage in the foreground. iOS suspends the one-second tick in the background and the route stalls.")
+                }
+
+                Section {
+                    Text("To build a route by tapping instead — with roads followed properly — use the Drive panel on the Location tab.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Route")
+            .navigationTitle("Routes")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { StatusPill() } }
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [UTType(filenameExtension: "gpx") ?? .xml, .xml]) { result in
@@ -82,19 +95,16 @@ struct RouteTab: View {
         }
     }
 
-    private var eta: String {
-        let hours = distanceKm / max(1, controller.speedKmh)
-        let minutes = Int((hours * 60).rounded())
-        return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
+    private var distanceText: String {
+        controller.useMPH
+            ? String(format: "%.2f mi", metres / 1609.344)
+            : String(format: "%.2f km", metres / 1000)
     }
 
-    private var paceHint: String {
-        switch controller.speedKmh {
-        case ..<7: return "Walking"
-        case ..<20: return "Running"
-        case ..<35: return "Cycling"
-        default: return "Driving"
-        }
+    private var eta: String {
+        let seconds = metres / max(0.1, controller.speedKmh * 1000 / 3600)
+        let minutes = Int((seconds / 60).rounded())
+        return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
     }
 
     private func load(_ result: Result<URL, Error>) {
@@ -106,12 +116,15 @@ struct RouteTab: View {
             let parsed = GPXReader.read(try Data(contentsOf: url))
             guard parsed.count >= 2 else {
                 importError = "No track, route or waypoints with 2+ points in that file."
+                Haptic.notify(.error)
                 return
             }
             points = parsed
             fileName = url.lastPathComponent
+            Haptic.notify(.success)
         } catch {
             importError = error.localizedDescription
+            Haptic.notify(.error)
         }
     }
 }

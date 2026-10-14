@@ -1,4 +1,4 @@
-// What the phone should be doing right now: real GPS, holding a spot, or walking a route.
+// What the phone should be doing right now: real GPS, holding a spot, or driving a route.
 // Mirrors locsim's Controller: re-send the held spot every few seconds (iOS drops the
 // simulated fix if the channel goes quiet), reconnect with backoff when the link drops.
 
@@ -15,9 +15,14 @@ final class SpoofController: ObservableObject {
     @Published private(set) var routePoints: [CLLocationCoordinate2D] = []
     @Published private(set) var progress = 0.0
     @Published private(set) var busy = false
+    @Published private(set) var building = false
     @Published private(set) var connected = false
     @Published private(set) var lastError = ""
     @Published private(set) var log: [String] = []
+
+    /// Waypoints the user tapped. Lives here rather than in a View so switching tabs
+    /// doesn't discard a half-built route.
+    @Published var waypoints: [CLLocationCoordinate2D] = []
 
     // @AppStorage only republishes when it's read from inside a View, so the
     // settings the engine itself reads are kept in UserDefaults by hand.
@@ -25,6 +30,23 @@ final class SpoofController: ObservableObject {
     @Published var jitter: Double { didSet { defaults.set(jitter, forKey: "jitter") } }
     @Published var speedKmh: Double { didSet { defaults.set(speedKmh, forKey: "speedKmh") } }
     @Published var loopRoute: Bool { didSet { defaults.set(loopRoute, forKey: "loopRoute") } }
+    @Published var useMPH: Bool { didSet { defaults.set(useMPH, forKey: "useMPH") } }
+    @Published var snapToRoads: Bool { didSet { defaults.set(snapToRoads, forKey: "snapToRoads") } }
+
+    /// The engine is metric internally; mph is purely a presentation unit.
+    var speedMPH: Double {
+        get { Speed.mph(fromKMH: speedKmh) }
+        set { speedKmh = Speed.kmh(fromMPH: newValue) }
+    }
+
+    var speedDisplay: Double {
+        get { useMPH ? speedMPH : speedKmh }
+        set { if useMPH { speedMPH = newValue } else { speedKmh = newValue } }
+    }
+
+    var speedUnit: String { useMPH ? "mph" : "km/h" }
+    /// Generous upper bound so highway speeds are reachable in either unit.
+    var speedRange: ClosedRange<Double> { useMPH ? 1...120 : 1...193 }
 
     static let heartbeatSeconds = 4.0
     static let tickSeconds = 1.0
@@ -41,8 +63,47 @@ final class SpoofController: ObservableObject {
     init() {
         targetAddress = defaults.string(forKey: "targetAddress") ?? "10.7.0.1"
         jitter = defaults.object(forKey: "jitter") as? Double ?? 0.1
-        speedKmh = defaults.object(forKey: "speedKmh") as? Double ?? 5
+        // ~30 mph: a driving default, since that's the common case.
+        speedKmh = defaults.object(forKey: "speedKmh") as? Double ?? 48
         loopRoute = defaults.bool(forKey: "loopRoute")
+        useMPH = defaults.object(forKey: "useMPH") as? Bool ?? true
+        snapToRoads = defaults.object(forKey: "snapToRoads") as? Bool ?? true
+    }
+
+    // MARK: Waypoints
+
+    func addWaypoint(_ coordinate: CLLocationCoordinate2D) {
+        waypoints.append(coordinate)
+    }
+
+    func removeLastWaypoint() {
+        guard !waypoints.isEmpty else { return }
+        waypoints.removeLast()
+    }
+
+    func clearWaypoints() {
+        waypoints = []
+        if mode != .moving { routePoints = [] }
+    }
+
+    /// Snap the tapped waypoints to roads (if asked) and start driving them.
+    func driveWaypoints() async {
+        guard waypoints.count >= 2 else { return fail("Tap at least 2 points on the map") }
+
+        var points = waypoints
+        if snapToRoads {
+            building = true
+            note("Snapping \(waypoints.count) waypoints to roads…")
+            do {
+                points = try await Routing.drivingRoute(through: waypoints)
+                note("Road route: \(points.count) points")
+            } catch {
+                building = false
+                return fail(error.localizedDescription)
+            }
+            building = false
+        }
+        startRoute(points, speedKmh: speedKmh, loop: loopRoute)
     }
 
     // MARK: Public actions
@@ -65,11 +126,14 @@ final class SpoofController: ObservableObject {
         routePoints = points
 
         // Distance per tick, not per route point, so speed is independent of how
-        // finely the GPX happens to be sampled.
+        // finely the route happens to be sampled.
         let metresPerTick = max(0.1, speedKmh) * 1000 / 3600 * Self.tickSeconds
         let walkerSource = RouteWalker(points: points)
-        note(String(format: "Walking %.2f km at %.0f km/h%@",
-                    walkerSource.total / 1000, speedKmh, loop ? ", looping" : ""))
+        note(String(format: "Driving %.2f km at %.0f %@%@",
+                    walkerSource.total / 1000,
+                    useMPH ? Speed.mph(fromKMH: speedKmh) : speedKmh,
+                    speedUnit,
+                    loop ? ", looping" : ""))
 
         route = Task { [weak self] in
             var walker = walkerSource
@@ -99,6 +163,7 @@ final class SpoofController: ObservableObject {
                         self.note("Route complete")
                         self.mode = .holding
                         self.startHeartbeat()
+                        Haptic.notify(.success)
                         return
                     }
                 }
@@ -248,6 +313,7 @@ final class SpoofController: ObservableObject {
     private func fail(_ message: String) {
         lastError = message
         note("⚠︎ \(message)")
+        Haptic.notify(.error)
     }
 
     private func note(_ message: String) {
