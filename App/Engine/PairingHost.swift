@@ -10,7 +10,9 @@
 //   pairable_host_accept_fd(fd)        -> the pairing file
 //   rp_pairing_file_write(path)        -> Application Support/Pairing/
 //
-// Everything here blocks, so the whole run happens on a background queue.
+// accept() and the handshake both block for as long as the user takes to respond, so
+// they are deliberately `nonisolated` and run on the pairing queue. Letting them touch
+// the main actor would park the UI and get the app watchdog-killed.
 
 import Foundation
 import IDevice
@@ -24,6 +26,12 @@ private final class PinBox {
 private let pinTrampoline: @convention(c) (UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = { pin, ctx in
     guard let pin, let ctx else { return }
     Unmanaged<PinBox>.fromOpaque(ctx).takeUnretainedValue().onPin(String(cString: pin))
+}
+
+/// Ownership of the host handle moves to the pairing queue for the duration of a run and
+/// nothing else touches it, which is what makes the unchecked conformance honest.
+private struct HostHandle: @unchecked Sendable {
+    let raw: OpaquePointer
 }
 
 @MainActor
@@ -91,72 +99,71 @@ final class PairingHost: ObservableObject {
         advertise(serviceID: serviceID, port: port, txt: txt)
         state = .waiting(service: serviceID, port: port)
 
+        let box = HostHandle(raw: handle)
         let listener = listenerFD
         queue.async { [weak self] in
-            // accept() blocks until the device dials in, or until stop() closes the fd.
+            // Blocks until the device dials in, or until stop() closes the fd.
             let client = accept(listener, nil, nil)
+            guard let self else { return }
             guard client >= 0 else {
-                Task { @MainActor in
-                    if self?.isRunning == true { self?.fail("No device connected") }
-                    self?.teardown(handle)
-                }
+                self.finish(box, outcome: .failed("No device connected"))
                 return
             }
-            self?.handshake(handle: handle, clientFD: client)
+            self.handshake(box, clientFD: client)
         }
     }
 
     func stop() {
         closeListener()
-        advertisement?.stop()
-        advertisement = nil
+        stopAdvertising()
         if isRunning { state = .idle }
     }
 
-    // MARK: Steps
+    // MARK: Handshake (off the main actor)
 
-    private func handshake(handle: OpaquePointer, clientFD: Int32) {
-        let box = PinBox { pin in
-            Task { @MainActor in self.state = .pin(pin) }
+    nonisolated private func handshake(_ box: HostHandle, clientFD: Int32) {
+        let box2 = box
+        let pin = PinBox { [weak self] code in
+            Task { @MainActor in self?.state = .pin(code) }
         }
-        let ctx = Unmanaged.passRetained(box).toOpaque()
+        let ctx = Unmanaged.passRetained(pin).toOpaque()
         defer {
             Unmanaged<PinBox>.fromOpaque(ctx).release()
             close(clientFD)
         }
 
         var pairingFile: OpaquePointer?
-        let err = pairable_host_accept_fd(handle, clientFD, pinTrampoline, ctx, nil, &pairingFile)
+        let err = pairable_host_accept_fd(box2.raw, clientFD, pinTrampoline, ctx, nil, &pairingFile)
 
         if let message = Self.message(err) {
-            Task { @MainActor in
-                self.fail("Pairing handshake: \(message)")
-                self.teardown(handle)
-            }
-            return
+            return finish(box2, outcome: .failed("Pairing handshake: \(message)"))
         }
         guard let pairingFile else {
-            Task { @MainActor in
-                self.fail("Handshake finished without a pairing file")
-                self.teardown(handle)
-            }
-            return
+            return finish(box2, outcome: .failed("Handshake finished without a pairing file"))
         }
 
-        let destination = PairingStore.url
-        let writeErr = rp_pairing_file_write(pairingFile, destination.path)
+        let writeErr = rp_pairing_file_write(pairingFile, PairingStore.url.path)
         rp_pairing_file_free(pairingFile)
 
-        Task { @MainActor in
-            if let message = Self.message(writeErr) {
-                self.fail("Saving pairing file: \(message)")
-            } else {
-                self.state = .paired
-                Haptic.notify(.success)
-            }
-            self.teardown(handle)
+        if let message = Self.message(writeErr) {
+            finish(box2, outcome: .failed("Saving pairing file: \(message)"))
+        } else {
+            finish(box2, outcome: .paired)
         }
     }
+
+    /// Free the handle on this queue, then report back on the main actor.
+    nonisolated private func finish(_ box: HostHandle, outcome: State) {
+        pairable_host_free(box.raw)
+        Task { @MainActor in
+            self.closeListener()
+            self.stopAdvertising()
+            self.state = outcome
+            Haptic.notify(outcome == .paired ? .success : .error)
+        }
+    }
+
+    // MARK: Socket + advertisement
 
     /// BSD sockets rather than Network.framework: pairable_host_accept_fd needs a raw fd,
     /// and NWConnection doesn't hand one out.
@@ -216,9 +223,7 @@ final class PairingHost: ObservableObject {
         advertisement = service
     }
 
-    private func teardown(_ handle: OpaquePointer) {
-        pairable_host_free(handle)
-        closeListener()
+    private func stopAdvertising() {
         advertisement?.stop()
         advertisement = nil
     }
@@ -231,13 +236,13 @@ final class PairingHost: ObservableObject {
     // MARK: Helpers
 
     /// The TXT blob comes back as an XML plist dictionary of strings.
-    private static func parseTXT(_ data: Data) -> [String: String] {
+    nonisolated private static func parseTXT(_ data: Data) -> [String: String] {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
               let dict = plist as? [String: Any] else { return [:] }
         return dict.compactMapValues { $0 as? String }
     }
 
-    private static func message(_ err: UnsafeMutablePointer<IdeviceFfiError>?) -> String? {
+    nonisolated private static func message(_ err: UnsafeMutablePointer<IdeviceFfiError>?) -> String? {
         guard let err else { return nil }
         let detail = err.pointee.message.map { String(cString: $0) } ?? "error \(err.pointee.code)"
         idevice_error_free(err)
