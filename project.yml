@@ -36,10 +36,9 @@ targets:
     entitlements:
       path: App/Support/Mirage.entitlements
     dependencies:
-      # Both wrap static archives, so there is nothing to embed in the bundle.
+      # Wraps static archives, so there is nothing to embed in the bundle.
+      # Upstream publishes no plist.xcframework despite their Package.swift naming one.
       - framework: Vendor/idevice/IDevice.xcframework
-        embed: false
-      - framework: Vendor/idevice/plist.xcframework
         embed: false
     settings:
       base:

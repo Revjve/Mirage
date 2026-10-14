@@ -54,21 +54,26 @@ jobs:
           find /tmp/ideviceraw -maxdepth 4 -type d -name '*.xcframework' \
             -exec cp -R {} Vendor/idevice/ \;
 
+      # Diagnostic, not a gate: upstream ships only IDevice.xcframework, so the open
+      # question is whether the generated idevice.h also declares the libplist types
+      # DeviceLink.swift needs. This prints the answer either way.
       - name: Inspect the dependency
         run: |
           echo "--- xcframeworks present ---"
           ls -1 Vendor/idevice || true
-          echo "--- slices ---"
-          for f in Vendor/idevice/*.xcframework; do
-            echo "$f:"; ls -1 "$f" | sed 's/^/    /'
-          done
-          # project.yml references both by name; fail loudly and early if either is absent.
-          for required in IDevice.xcframework plist.xcframework; do
-            if [ ! -d "Vendor/idevice/$required" ]; then
-              echo "::error::Vendor/idevice/$required is missing — see the listing above."
-              exit 1
-            fi
-          done
+          echo "--- ios-arm64 slice ---"
+          find Vendor/idevice/IDevice.xcframework/ios-arm64 -maxdepth 2 | sed 's/^/    /'
+          echo "--- modulemap ---"
+          find Vendor/idevice -name 'module.modulemap' -exec cat {} \;
+          echo "--- does idevice.h cover plist? ---"
+          HDR=$(find Vendor/idevice -name 'idevice.h' | head -1)
+          echo "header: $HDR"
+          grep -nE 'plist_t|plist_free|plist_get_uint_val|include .*plist' "$HDR" | head -20 \
+            || echo "    NO plist symbols in idevice.h — needs a separate plist module"
+          echo "--- minimum iOS of the device slice ---"
+          vtool -show-build-version \
+            Vendor/idevice/IDevice.xcframework/ios-arm64/libidevice_ffi.a 2>/dev/null \
+            | grep -E 'platform|minos' || echo "    (could not read build version)"
 
       - name: Install XcodeGen
         run: brew install xcodegen

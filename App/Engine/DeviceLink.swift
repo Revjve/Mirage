@@ -8,11 +8,11 @@
 
 import Darwin
 import Foundation
-// Upstream names the module IDevice (capital I, capital D) in swift/include/module.modulemap,
-// and ships libplist as a *separate* module — plist_t / plist_free / plist_get_uint_val
-// below come from that one, not from IDevice.
+// Upstream names the module IDevice (capital I, capital D) in its module.modulemap,
+// not `idevice`. Their Package.swift also declares a separate `plist` module, but no
+// plist.xcframework is actually published — the plist_t / plist_free / plist_get_uint_val
+// used below come through IDevice's generated header.
 import IDevice
-import plist
 
 struct LinkError: LocalizedError {
     let message: String
