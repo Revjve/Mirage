@@ -46,9 +46,16 @@ project.yml                  XcodeGen spec
 tunnel is already listening there. That tunnel is a separate piece, and it's the only
 thing still missing:
 
-- **Option 1 — external provider (easiest).** Run StikDebug's tunnel alongside Mirage.
-  Then delete the `com.apple.developer.networking.networkextension` key from
-  `Mirage.entitlements`, and Mirage signs on a **free** Apple account.
+- **Option 1 — external provider (easiest).** Install **LocalDevVPN** from the App Store
+  (`id6755608044`) and enable it. It is a standalone loopback VPN, *not* part of StikDebug
+  — StikDebug consumes the same tunnel Mirage does, so Mirage does not need StikDebug at
+  all, only LocalDevVPN plus a pairing file. Being an App Store app it also costs no
+  sideload slot and never expires. Keep
+  `com.apple.developer.networking.networkextension` out of `Mirage.entitlements` and
+  Mirage signs on a **free** Apple account.
+
+  Wi-Fi must be on and connected, per upstream's own troubleshooting — the loopback
+  tunnel will not come up on cellular alone.
 - **Option 2 — ship your own.** Add an `NEPacketTunnelProvider` target (a port of
   `em_proxy`) and keep the entitlement. This needs a **paid** Apple Developer account —
   a free personal team cannot sign `packet-tunnel-provider`.
