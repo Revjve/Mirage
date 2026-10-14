@@ -337,6 +337,14 @@ final class SpoofController: ObservableObject {
     private func fail(_ message: String) {
         lastError = message
         note("⚠︎ \(message)")
+        // Socket 61 at the tunnel step is nearly always one of two known causes rather
+        // than a real fault, and the raw error says neither. Upstream StikDebug #352
+        // (cellular) and #442 (IP mismatch) are the same wall.
+        let lowered = message.lowercased()
+        if lowered.contains("refused") || lowered.contains("61") {
+            note("Hint: Wi-Fi must be on — cellular alone can't reach the on-device service. Airplane Mode after connecting, or another phone's hotspot, both work.")
+            note("Hint: also check Setup › Tunnel matches the address LocalDevVPN reports (it isn't always \(targetAddress)).")
+        }
         Haptic.notify(.error)
     }
 
