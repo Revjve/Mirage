@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Intentionally empty.
+
+	     A free Apple ID cannot sign com.apple.developer.networking.networkextension
+	     (packet-tunnel-provider) — Sideloadly will fail outright if it's present. So
+	     Mirage ships without its own tunnel and expects an external one on 10.7.0.1
+	     (run StikDebug's tunnel alongside it).
+
+	     If you move to a paid Apple Developer account and want Mirage to carry its own
+	     NEPacketTunnelProvider, add this back and add the extension target:
+
+	       <key>com.apple.developer.networking.networkextension</key>
+	       <array><string>packet-tunnel-provider</string></array>
+	-->
+</dict>
+</plist>

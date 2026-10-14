@@ -1,0 +1,20 @@
+# XcodeGen regenerates this from project.yml — never commit it
+Mirage.xcodeproj/
+
+# Build output
+build/
+DerivedData/
+Payload/
+*.ipa
+*.dSYM
+xcodebuild.log
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+.swiftpm/
+
+.DS_Store
+
+# NOTE: Vendor/idevice/*.a is deliberately NOT ignored — CI needs to link it.

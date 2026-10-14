@@ -1,0 +1,6 @@
+// Makes `import idevice` work from Swift. The module name here is what
+// DeviceLink.swift imports, so don't rename it.
+module idevice {
+    header "idevice.h"
+    export *
+}

@@ -1,0 +1,76 @@
+name: Build unsigned IPA
+
+# Builds Mirage on a macOS runner and uploads an unsigned .ipa you can sign
+# locally with Sideloadly. Nothing here needs a Mac of your own.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: # lets you hit "Run workflow" by hand from the Actions tab
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Mirage.xcodeproj
+        run: xcodegen generate
+
+      # Unsigned: CI has no certificate and doesn't need one. Sideloadly signs
+      # the result with your Apple ID when you install it.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Mirage.xcodeproj \
+            -scheme Mirage \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee xcodebuild.log
+
+      - name: Package into .ipa
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Mirage.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::No Mirage.app was produced — see the Build step above."
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Mirage.ipa Payload
+          ls -lh Mirage.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mirage-unsigned
+          path: Mirage.ipa
+          if-no-files-found: error
+
+      # The dependency wiring is the part most likely to fail first, so keep the
+      # full log retrievable instead of scrolling the web view.
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
