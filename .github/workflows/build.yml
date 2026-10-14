@@ -65,11 +65,17 @@ jobs:
           find Vendor/idevice/IDevice.xcframework/ios-arm64 -maxdepth 2 | sed 's/^/    /'
           echo "--- modulemap ---"
           find Vendor/idevice -name 'module.modulemap' -exec cat {} \;
-          echo "--- does idevice.h cover plist? ---"
+          echo "--- every plist-ish identifier in idevice.h ---"
           HDR=$(find Vendor/idevice -name 'idevice.h' | head -1)
           echo "header: $HDR"
-          grep -nE 'plist_t|plist_free|plist_get_uint_val|include .*plist' "$HDR" | head -20 \
-            || echo "    NO plist symbols in idevice.h — needs a separate plist module"
+          grep -oE '[A-Za-z_][A-Za-z0-9_]*plist[A-Za-z0-9_]*' "$HDR" | sort -u | sed 's/^/    /'
+          echo "--- symbols DeviceLink.swift calls, present/absent ---"
+          for sym in plist_free plist_get_uint_val idevice_plist_array_free \
+                     location_simulation_new tunnel_create_rppairing \
+                     image_mounter_mount_personalized_rsd cryptexd_install_ddi \
+                     lockdownd_get_value rp_pairing_file_read; do
+            if grep -q "\b$sym\b" "$HDR"; then echo "    OK      $sym"; else echo "    MISSING $sym"; fi
+          done
           echo "--- minimum iOS of the device slice ---"
           vtool -show-build-version \
             Vendor/idevice/IDevice.xcframework/ios-arm64/libidevice_ffi.a 2>/dev/null \

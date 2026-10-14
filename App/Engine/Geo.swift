@@ -19,6 +19,13 @@ enum Geo {
                                longitude: a.longitude + (b.longitude - a.longitude) * t)
     }
 
+    /// CLLocationCoordinate2D is not Equatable, and a retroactive conformance to a type
+    /// from another module warns under Swift 6 — so compare the components explicitly.
+    static func same(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D?) -> Bool {
+        guard let b else { return false }
+        return a.latitude == b.latitude && a.longitude == b.longitude
+    }
+
     /// "40.6892, -74.0445" → coordinate. Latitude first.
     static func parse(_ text: String) -> CLLocationCoordinate2D? {
         let parts = text.split(whereSeparator: { $0 == "," || $0 == " " }).compactMap { Double($0) }

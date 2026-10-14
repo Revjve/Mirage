@@ -24,7 +24,7 @@ struct MapTab: View {
                         Marker("Simulated", systemImage: "location.fill", coordinate: live)
                             .tint(controller.mode == .moving ? .green : .blue)
                     }
-                    if let pending, pending != controller.position {
+                    if let pending, !Geo.same(pending, controller.position) {
                         Marker("Pending", systemImage: "mappin", coordinate: pending)
                             .tint(.orange)
                     }
