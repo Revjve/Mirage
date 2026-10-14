@@ -20,8 +20,11 @@ final class SpoofController: ObservableObject {
     @Published private(set) var lastError = ""
     @Published private(set) var log: [String] = []
 
-    /// Waypoints the user tapped. Lives here rather than in a View so switching tabs
-    /// doesn't discard a half-built route.
+    /// Where we're driving to. Kept here so the map can pin it across tab switches.
+    @Published var destination: CLLocationCoordinate2D?
+
+    /// Extra waypoints for a multi-stop route (Routes tab). The common case is a single
+    /// destination, which needs none of these.
     @Published var waypoints: [CLLocationCoordinate2D] = []
 
     // @AppStorage only republishes when it's read from inside a View, so the
@@ -104,6 +107,27 @@ final class SpoofController: ObservableObject {
             building = false
         }
         startRoute(points, speedKmh: speedKmh, loop: loopRoute)
+    }
+
+    /// The main flow: route from where you are to a destination along real roads, drive
+    /// it at the set speed, then hold at the far end.
+    ///
+    /// `loop` is forced off — arriving and staying put is the whole point, and
+    /// startRoute() already switches to .holding with a heartbeat when a route finishes.
+    func driveTo(_ target: CLLocationCoordinate2D, from origin: CLLocationCoordinate2D) async {
+        destination = target
+        building = true
+        note("Routing to \(Self.format(target))…")
+        do {
+            let points = snapToRoads
+                ? try await Routing.drivingRoute(through: [origin, target])
+                : [origin, target]
+            building = false
+            startRoute(points, speedKmh: speedKmh, loop: false)
+        } catch {
+            building = false
+            fail(error.localizedDescription)
+        }
     }
 
     // MARK: Public actions

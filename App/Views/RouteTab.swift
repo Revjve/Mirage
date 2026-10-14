@@ -81,7 +81,7 @@ struct RouteTab: View {
                 }
 
                 Section {
-                    Text("To build a route by tapping instead — with roads followed properly — use the Drive panel on the Location tab.")
+                    Text("For a single destination — routed along real roads from where you are, then held on arrival — use the Location tab instead. This screen is for driving a GPX track you already have.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

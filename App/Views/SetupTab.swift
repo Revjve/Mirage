@@ -52,6 +52,18 @@ struct SetupTab: View {
                 }
 
                 Section {
+                    Toggle(isOn: $controller.snapToRoads) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Follow roads")
+                            Text("Routes use MapKit driving directions. Off means a straight line.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Driving")
+                }
+
+                Section {
                     LabeledContent("Tunnel") {
                         TextField("10.7.0.1", text: $controller.targetAddress)
                             .multilineTextAlignment(.trailing)

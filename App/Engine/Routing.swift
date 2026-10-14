@@ -46,6 +46,19 @@ enum Routing {
         }
         return combined
     }
+
+    /// Resolve a typed place name to a coordinate, so a destination can be an address
+    /// rather than a pair of decimals.
+    static func locate(_ query: String, near region: MKCoordinateRegion?) async throws -> CLLocationCoordinate2D {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        if let region { request.region = region }
+        let response = try await MKLocalSearch(request: request).start()
+        guard let item = response.mapItems.first else {
+            throw LinkError(message: "Couldn't find that place")
+        }
+        return item.placemark.coordinate
+    }
 }
 
 extension MKPolyline {
