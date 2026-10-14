@@ -22,6 +22,17 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Shows where the phone actually is, so you can compare it against the simulated position.</string>
 
+	<!-- PairingHost advertises itself over Bonjour so the device can discover it and
+	     pair. Since iOS 14 both of these are mandatory: without the usage description
+	     the prompt never appears, and without the service listed the advertisement is
+	     silently refused. The type must match pairable_host's exactly. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Mirage advertises a pairing service to this iPhone itself, so it can generate its own pairing file without a computer.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_remotepairing-pairable-host._tcp</string>
+	</array>
+
 	<!-- PairingStore.adoptFromDocuments() watches Documents: these two keys are what
 	     make "On My iPhone → Mirage" appear in the Files app so a pairing file can be
 	     dropped in without going through the importer. -->

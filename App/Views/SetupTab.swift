@@ -6,6 +6,7 @@ import SwiftUI
 
 struct SetupTab: View {
     @EnvironmentObject private var controller: SpoofController
+    @EnvironmentObject private var pairingHost: PairingHost
     @State private var importingPairing = false
     @State private var pairingReady = false
     @State private var ddiReady = false
@@ -18,16 +19,61 @@ struct SetupTab: View {
             Form {
                 Section {
                     row("Pairing file", ok: pairingReady)
+
+                    switch pairingHost.state {
+                    case .waiting(let service, let port):
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Waiting for this iPhone to connect…").font(.subheadline)
+                            }
+                            Text("\(service) · port \(String(port))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Button(role: .destructive) { pairingHost.stop() } label: {
+                            Label("Cancel", systemImage: "xmark")
+                        }
+
+                    case .pin(let pin):
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Enter this code if asked").font(.caption).foregroundStyle(.secondary)
+                            Text(pin)
+                                .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                                .numeric()
+                        }
+
+                    case .failed(let message):
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+
+                    case .paired:
+                        Label("Pairing file created", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline).foregroundStyle(.green)
+
+                    case .idle:
+                        EmptyView()
+                    }
+
+                    if !pairingHost.isRunning {
+                        Button {
+                            Haptic.tap()
+                            pairingHost.start()
+                        } label: {
+                            Label(pairingReady ? "Create a new pairing file" : "Create pairing file",
+                                  systemImage: "wave.3.right.circle")
+                        }
+                    }
+
                     Button {
                         importingPairing = true
                     } label: {
-                        Label(pairingReady ? "Replace pairing file…" : "Import pairing file…",
-                              systemImage: "doc.badge.plus")
+                        Label("Import a file instead…", systemImage: "doc.badge.plus")
                     }
                 } header: {
                     Text("Step 1 — Pair")
                 } footer: {
-                    Text("Generate one on-device with StikPair, or drop \(PairingStore.fileName) into On My iPhone → Mirage in the Files app and Mirage will pick it up.")
+                    Text("Mirage can act as its own pairing host: it advertises over Bonjour and this iPhone pairs with it, so StikPair and a computer are both unnecessary. Failing that, drop \(PairingStore.fileName) into On My iPhone → Mirage in the Files app.")
                 }
 
                 Section {
@@ -97,6 +143,7 @@ struct SetupTab: View {
             .navigationTitle("Setup")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { StatusPill() } }
             .onAppear(perform: refresh)
+            .onChange(of: pairingHost.state) { _, _ in refresh() }
             .fileImporter(isPresented: $importingPairing,
                           allowedContentTypes: PairingStore.contentTypes) { result in
                 setupError = ""

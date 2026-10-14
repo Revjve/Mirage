@@ -7,12 +7,14 @@ import SwiftUI
 struct MirageApp: App {
     @StateObject private var controller = SpoofController()
     @StateObject private var realLocation = RealLocation()
+    @StateObject private var pairingHost = PairingHost()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(controller)
                 .environmentObject(realLocation)
+                .environmentObject(pairingHost)
         }
     }
 }
