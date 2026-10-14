@@ -17,4 +17,6 @@ xcuserdata/
 
 .DS_Store
 
-# NOTE: Vendor/idevice/*.a is deliberately NOT ignored — CI needs to link it.
+
+# idevice xcframeworks are downloaded + cached by CI, never committed (~203MB)
+Vendor/idevice/*.xcframework/

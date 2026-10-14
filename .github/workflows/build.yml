@@ -9,10 +9,15 @@ on:
   pull_request:
   workflow_dispatch: # lets you hit "Run workflow" by hand from the Actions tab
 
+env:
+  # Pinned deliberately. Bump it on purpose, not implicitly — DeviceLink.swift's FFI
+  # calls have to match this version's idevice.h.
+  IDEVICE_VERSION: v0.1.68
+
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +27,48 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
+
+      # 203 MB per release, so don't re-download it on every push.
+      - name: Cache idevice xcframework
+        id: cache-idevice
+        uses: actions/cache@v4
+        with:
+          path: Vendor/idevice
+          key: idevice-${{ env.IDEVICE_VERSION }}
+
+      # Upstream can't be used as a SwiftPM dependency (its Package.swift is in a
+      # subdirectory), so take the prebuilt xcframework they publish per release.
+      - name: Download idevice xcframework
+        if: steps.cache-idevice.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p Vendor/idevice /tmp/ideviceraw
+          gh release download "$IDEVICE_VERSION" \
+            --repo jkcoxson/idevice \
+            --pattern 'idevice-xcframework-*.zip' \
+            --output /tmp/idevice.zip
+          unzip -q /tmp/idevice.zip -d /tmp/ideviceraw
+          # The zip's internal layout isn't contractual, so hoist any xcframework
+          # out of wherever it landed.
+          find /tmp/ideviceraw -maxdepth 4 -type d -name '*.xcframework' \
+            -exec cp -R {} Vendor/idevice/ \;
+
+      - name: Inspect the dependency
+        run: |
+          echo "--- xcframeworks present ---"
+          ls -1 Vendor/idevice || true
+          echo "--- slices ---"
+          for f in Vendor/idevice/*.xcframework; do
+            echo "$f:"; ls -1 "$f" | sed 's/^/    /'
+          done
+          # project.yml references both by name; fail loudly and early if either is absent.
+          for required in IDevice.xcframework plist.xcframework; do
+            if [ ! -d "Vendor/idevice/$required" ]; then
+              echo "::error::Vendor/idevice/$required is missing — see the listing above."
+              exit 1
+            fi
+          done
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -65,8 +112,6 @@ jobs:
           path: Mirage.ipa
           if-no-files-found: error
 
-      # The dependency wiring is the part most likely to fail first, so keep the
-      # full log retrievable instead of scrolling the web view.
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4

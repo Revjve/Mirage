@@ -8,7 +8,11 @@
 
 import Darwin
 import Foundation
-import idevice
+// Upstream names the module IDevice (capital I, capital D) in swift/include/module.modulemap,
+// and ships libplist as a *separate* module — plist_t / plist_free / plist_get_uint_val
+// below come from that one, not from IDevice.
+import IDevice
+import plist
 
 struct LinkError: LocalizedError {
     let message: String

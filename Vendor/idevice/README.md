@@ -1,61 +1,49 @@
 # Vendor/idevice
 
-Two files need to land in this folder before Mirage will link:
+This folder is populated by CI, not committed. After the download step it holds:
 
 ```
 Vendor/idevice/
-  idevice.h             <- the C header declaring the FFI surface
-  libidevice_ffi.a      <- the prebuilt static archive (arm64, device)
-  module.modulemap      <- already here; do not rename the module
+  IDevice.xcframework      <- the FFI library (wraps static archives per platform)
+  plist.xcframework        <- libplist, a SEPARATE module
 ```
 
-`DeviceLink.swift` does `import idevice`, which resolves through `module.modulemap`
-to `idevice.h`. The archive is linked via `-lidevice_ffi` (see `project.yml`).
+Both are linked by `project.yml` with `embed: false`, because they wrap static
+archives — there's nothing to embed in the app bundle.
 
-## Where to get them
+## Why it's downloaded instead of declared as a dependency
 
-`idevice` is Jackson Coxson's Rust reimplementation of the pymobiledevice3 protocols.
-It is **not** a SwiftPM package — StikJIT consumes it as this exact header + archive pair.
-Either:
+`jkcoxson/idevice` **cannot** be used as a SwiftPM package dependency: its
+`Package.swift` lives in the repo's `swift/` subdirectory, and SwiftPM requires one at
+the repository root. Upstream publishes a prebuilt `idevice-xcframework-<version>.zip`
+with each release (~203 MB), which is what the workflow fetches and caches.
 
-1. **Lift them from StikJIT/StikDebug**, which bundle a known-good pair, or
-2. **Build from the Rust source** (`jkcoxson/idevice`), which is more reproducible:
-   ```bash
-   rustup target add aarch64-apple-ios
-   cargo build --release --target aarch64-apple-ios
-   ```
-   then copy the resulting `.a` here and generate/copy the matching header.
+## Module names — this bit is easy to get wrong
 
-Option 2 is preferable because it lets you control the archive's minimum-iOS, and you
-aren't trusting a binary of unknown provenance.
+Upstream's `swift/include/module.modulemap` declares the module as **`IDevice`**, capital
+I and capital D — *not* `idevice`. And `plist` is a separate framework module. So
+`DeviceLink.swift` needs both:
 
-## Check the symbols match
-
-`DeviceLink.swift` calls these. If any are missing from `idevice.h`, you have a version
-mismatch and the link will fail with `Undefined symbol`:
-
-```
-rp_pairing_file_read / rp_pairing_file_free
-tunnel_create_rppairing
-adapter_free / rsd_handshake_free
-remote_server_connect_rsd / remote_server_free
-location_simulation_new / _set / _clear / _free
-cryptexd_installed_ddi / cryptexd_install_ddi / cryptexd_free_installed_cryptex
-cryptex1_assets_load / cryptex1_assets_free
-image_mounter_connect_rsd / _copy_devices / _free / _mount_personalized_rsd
-lockdownd_connect_rsd / lockdownd_get_value / lockdownd_client_free
-idevice_error_free / idevice_data_free
-plist_free / plist_get_uint_val
+```swift
+import IDevice
+import plist   // plist_t, plist_free, plist_get_uint_val
 ```
 
-Note: on **iOS 26.0.1** `DDIStore.useCryptex` is false, so the `cryptex*` calls are
-compiled but not exercised at runtime — the personalized path in `mountDDI` is what runs.
-They still have to *exist* in the header to link.
+## Version pinning
 
-## Check the archive's minimum iOS
+The workflow pins `IDEVICE_VERSION` (currently `v0.1.68`). Bump it deliberately: the FFI
+symbols `DeviceLink.swift` calls must exist in that version's generated `idevice.h`, and
+a silent floating version is how you get `Undefined symbol` on an unrelated commit.
+
+## Building it yourself instead
+
+Upstream's `justfile` has the canonical device recipe, run from `ffi/`:
 
 ```bash
-vtool -show-build-version libidevice_ffi.a | grep minos
+BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
+  IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  cargo build --release --target aarch64-apple-ios --features obfuscate
 ```
 
-Anything at or below 17 is fine for this project (deployment target is 17.0).
+Note the deployment target: **17.0**, which is why `project.yml` also targets 17.0.
+`just xcframework` assembles the full multi-platform xcframework (requires a Mac).
