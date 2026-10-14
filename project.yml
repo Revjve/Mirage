@@ -45,5 +45,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hertj.mirage
         INFOPLIST_FILE: App/Support/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/Support/Mirage.entitlements
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1" # iPhone only: iPad would require all four orientations
         SWIFT_EMIT_LOC_STRINGS: YES
